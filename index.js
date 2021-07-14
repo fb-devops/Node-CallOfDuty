@@ -1,7 +1,6 @@
 const axios = require('axios');
-const uniqid = require('uniqid');
 const rateLimit = require('axios-rate-limit');
-const crypto = require('crypto');
+const puppeteer = require('puppeteer');
 
 module.exports = function(config = {}) {
     var module = {};
@@ -9,12 +8,13 @@ module.exports = function(config = {}) {
     let loggedIn = false;
 
     const userAgent = "a4b471be-4ad2-47e2-ba0e-e1f2aa04bff9";
-    let baseCookie = "new_SiteId=cod; ACT_SSO_LOCALE=en_US;country=US;XSRF-TOKEN=68e8b62e-1d9d-4ce1-b93f-cbe5ff31a041;API_CSRF_TOKEN=68e8b62e-1d9d-4ce1-b93f-cbe5ff31a041;";
+    let baseCookie = "new_SiteId=cod; comid=cod; ACT_SSO_LOCALE=en_US;country=US;";
     let ssoCookie;
     let debug = 0;
 
     let defaultBaseURL = "https://my.callofduty.com/api/papi-client/";
-    let loginURL = "https://profile.callofduty.com/cod/mapp/";
+    let loginPage = "https://profile.callofduty.com/cod/login";
+    let loginUrl = "https://profile.callofduty.com/do_login";
     let defaultProfileURL = "https://profile.callofduty.com/";
 
     let apiAxios = axios.create({
@@ -174,35 +174,42 @@ module.exports = function(config = {}) {
         all: "all"
     };
 
-    module.login = function(email, password) {
-        return new Promise((resolve, reject) => {
-            let randomId = uniqid();
-            let md5sum = crypto.createHash('md5');
-            let deviceId = md5sum.update(randomId).digest('hex');
-            _helpers.postReq(`${loginURL}registerDevice`, {
-                'deviceId': deviceId
-            }).then((response) => {
-                let authHeader = response.data.authHeader;
-                apiAxios.defaults.headers.common.Authorization = `bearer ${authHeader}`;
-                apiAxios.defaults.headers.common.x_cod_device_id = `${deviceId}`;
-                _helpers.postReq(`${loginURL}login`, {
-                    "email": email,
-                    "password": password
-                }).then((data) => {
-                    if (!data.success) throw Error("401 - Unauthorized. Incorrect username or password.");
-                    ssoCookie = data.s_ACT_SSO_COOKIE;
-                    apiAxios.defaults.headers.common.Cookie = `${baseCookie}rtkn=${data.rtkn};ACT_SSO_COOKIE=${data.s_ACT_SSO_COOKIE};atkn=${data.atkn};`;
-                    loggedIn = true;
-                    resolve("200 - OK. Log in successful.");
-                }).catch((err) => {
-                    if (typeof err === "string") reject(err);
-                    reject(err.message);
-                });
-            }).catch((err) => {
-                if (typeof err === "string") reject(err);
-                reject(err.message);
-            });
-        });
+    module.login = async function(email, password) {
+
+        const cookies = {};
+
+        const browser = await puppeteer.launch();
+
+        try {
+            const page = await browser.newPage();
+
+            await Promise.all([
+                page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
+                page.goto(loginPage),
+            ]);
+
+            await page.type('#username', email);
+            await page.type('#password', password);
+
+            const loggedInRequest = page.waitForResponse((res) => res.url().includes(loginUrl));
+
+            await page.click('#login-button'),
+
+            await loggedInRequest;
+
+            pupAllCookies = await page._client.send('Network.getAllCookies');
+            pupAllCookies.cookies.forEach(c => {
+                cookies[c.name] = c.value;
+            })
+
+            apiAxios.defaults.headers.common.Cookie = `${baseCookie}ACT_SSO_COOKIE=${cookies['ACT_SSO_COOKIE']}`;
+            loggedIn = true;
+        } catch (error) {
+            await browser.close();
+            throw error;
+        }
+
+        await browser.close();
     };
 
     module.IWStats = function(gamertag, platform = config.platform) {

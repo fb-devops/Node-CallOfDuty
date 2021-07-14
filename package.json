@@ -33,6 +33,7 @@
   "dependencies": {
     "axios": "^0.21.0",
     "axios-rate-limit": "^1.2.1",
+    "puppeteer": "^10.1.0",
     "uniqid": "^5.2.0"
   }
 }
